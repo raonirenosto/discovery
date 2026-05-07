@@ -1,0 +1,36 @@
+# Dependências
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos gerados
+resultado.html
+
+# Ambiente
+.env
+.env.*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs/Editores
+.vscode/
+.idea/
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Coverage/Testes
+coverage/
+
+# Puppeteer/Chrome
+.chrome/
+puppeteer-cache/
+
+# Package lock opcional
+# package-lock.json
