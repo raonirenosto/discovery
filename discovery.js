@@ -21,16 +21,35 @@ function lerFiis() {
 }
 
 // ===============================
-// 📈 CALCULAR MESES CRESCENTES
+// 🖥️ STATUS DINÂMICO
 // ===============================
 
-function calcularMesesCrescentes(historicoDividendos) {
+function atualizarStatus(texto) {
+
+    process.stdout.clearLine(0)
+    process.stdout.cursorTo(0)
+    process.stdout.write(texto)
+}
+
+// ===============================
+// 📈 CALCULAR MESES SEM QUEBRA
+// ===============================
+
+function calcularMesesSemQuebra(historicoDividendos) {
 
     if (!historicoDividendos.length) {
-        return 0
+
+        return {
+            meses: 0,
+            quebra: null
+        }
     }
 
-    const listaOriginal = historicoDividendos.map(h => {
+    // ===============================
+    // NORMALIZAR
+    // ===============================
+
+    const lista = historicoDividendos.map(h => {
 
         const valor = parseFloat(
             h.valor
@@ -44,60 +63,61 @@ function calcularMesesCrescentes(historicoDividendos) {
         }
     })
 
-    const lista = []
+    // ===============================
+    // CONTAGEM
+    // ===============================
 
-    for (let i = 0; i < listaOriginal.length; i++) {
+    let meses = 1
+    let quebra = null
 
-        const atual = listaOriginal[i]
-        const anterior = listaOriginal[i + 1]
-        const proximo = listaOriginal[i + 2]
+    for (let i = 0; i < lista.length - 2; i++) {
 
-        const partes =
-            atual.dataCom.split("/")
+        const atual = lista[i]
+        const proximo = lista[i + 1]
+        const depois = lista[i + 2]
 
-        const mes =
-            partes[1]
+        // ===============================
+        // ESTÁVEL OU CRESCENTE
+        // ===============================
 
-        // ignorar janeiro e junho
-        if (mes === "01" || mes === "06") {
+        if (atual.valor >= proximo.valor) {
+
+            meses++
             continue
         }
 
-        // ignorar pico temporário
-        if (anterior && proximo) {
+        // ===============================
+        // PICO TEMPORÁRIO
+        // ===============================
 
-            const ehPico =
-                atual.valor > anterior.valor
-                && proximo.valor >= anterior.valor
+        const ehPicoTemporario =
 
-            if (ehPico) {
-                continue
-            }
-        }
+            proximo.valor > atual.valor
+            &&
+            depois.valor <= atual.valor
 
-        lista.push(atual)
-    }
+        if (ehPicoTemporario) {
 
-    let meses = 1
-
-    for (let i = 0; i < lista.length - 1; i++) {
-
-        const atual = lista[i]
-        const anterior = lista[i + 1]
-
-        if (atual.valor >= anterior.valor) {
             meses++
+            continue
         }
-        else {
-            break
-        }
+
+        // ===============================
+        // QUEBRA REAL
+        // ===============================
+
+        quebra = proximo.dataCom
+        break
     }
 
-    return meses
+    return {
+        meses,
+        quebra
+    }
 }
 
 // ===============================
-// 🌐 EXTRAIR TABELA VIA DOM REAL
+// 🌐 EXTRAIR TABELA
 // ===============================
 
 async function lerTabelaDividendos(page) {
@@ -111,12 +131,9 @@ async function lerTabelaDividendos(page) {
 
         return linhas.map(linha => {
 
-            const colunas =
-                Array.from(
-                    linha.querySelectorAll("td")
-                ).map(td => td.innerText.trim())
-
-            return colunas
+            return Array.from(
+                linha.querySelectorAll("td")
+            ).map(td => td.innerText.trim())
         })
     })
 }
@@ -125,7 +142,7 @@ async function lerTabelaDividendos(page) {
 // 🌐 EXTRAIR RENDIMENTOS
 // ===============================
 
-async function extrairRendimentos(page) {
+async function extrairRendimentos(page, ticker) {
 
     const historicoDividendos = []
     const registros = new Set()
@@ -135,8 +152,9 @@ async function extrairRendimentos(page) {
 
     while (continuar) {
 
-        console.log("")
-        console.log(`📄 Página ${pagina}`)
+        atualizarStatus(
+            `🔄 ${ticker} | carregando página ${pagina}...`
+        )
 
         await new Promise(r => setTimeout(r, 3000))
 
@@ -181,22 +199,13 @@ async function extrairRendimentos(page) {
 
                         encontrouNaPagina++
 
-                        console.log(
-                            `• ${dataCom} | ${pagamento} | ${valor}`
+                        atualizarStatus(
+                            `🔄 ${ticker} | ${dataCom} | R$ ${valor}`
                         )
                     }
                 }
             }
         }
-
-        if (encontrouNaPagina === 0) {
-
-            console.log("⚠️ Página ignorada")
-        }
-
-        // ===============================
-        // SALVAR PRIMEIRO ITEM
-        // ===============================
 
         const primeiroAntes =
             historicoDividendos[
@@ -204,7 +213,7 @@ async function extrairRendimentos(page) {
             ]?.dataCom
 
         // ===============================
-        // TENTAR CLICAR NA PRÓXIMA PÁGINA
+        // PRÓXIMA PÁGINA
         // ===============================
 
         const paginaAlvo = pagina + 1
@@ -259,7 +268,7 @@ async function extrairRendimentos(page) {
         }
 
         // ===============================
-        // ESPERAR DOM MUDAR
+        // ESPERAR TROCA DA TABELA
         // ===============================
 
         try {
@@ -298,7 +307,6 @@ async function extrairRendimentos(page) {
 
         } catch {
 
-            console.log("⚠️ Página não mudou")
             continuar = false
         }
 
@@ -321,6 +329,8 @@ async function processarFii(browser, ticker) {
 
     try {
 
+        atualizarStatus(`🌐 Abrindo ${ticker}...`)
+
         page = await browser.newPage()
 
         await page.setViewport({
@@ -334,11 +344,6 @@ async function processarFii(browser, ticker) {
             "Chrome/137.0.0.0 Safari/537.36"
         )
 
-        console.log("")
-        console.log("==================================================")
-        console.log(`📊 ${ticker}`)
-        console.log("==================================================")
-
         await page.goto(url, {
             waitUntil: "networkidle2",
             timeout: 0
@@ -346,7 +351,6 @@ async function processarFii(browser, ticker) {
 
         await new Promise(r => setTimeout(r, 5000))
 
-        // scroll até a tabela carregar
         await page.evaluate(() => {
 
             const tabelas =
@@ -364,15 +368,31 @@ async function processarFii(browser, ticker) {
         await new Promise(r => setTimeout(r, 3000))
 
         const historicoDividendos =
-            await extrairRendimentos(page)
+            await extrairRendimentos(page, ticker)
 
-        const mesesCrescentes =
-            calcularMesesCrescentes(historicoDividendos)
+        const resultado =
+            calcularMesesSemQuebra(historicoDividendos)
+
+        process.stdout.write("\n")
 
         console.log("")
+        console.log(`📊 ${ticker}`)
         console.log(
-            `📈 Rendimentos iguais/crescentes: ${mesesCrescentes} meses`
+            `📈 Meses sem quebra: ${resultado.meses}`
         )
+
+        if (resultado.quebra) {
+
+            console.log(
+                `📉 Quebra encontrada em: ${resultado.quebra}`
+            )
+        }
+        else {
+
+            console.log(
+                "✅ Nenhuma quebra encontrada"
+            )
+        }
 
         console.log(
             `✅ ${historicoDividendos.length} rendimentos encontrados`
@@ -380,6 +400,9 @@ async function processarFii(browser, ticker) {
 
     } catch (e) {
 
+        process.stdout.write("\n")
+
+        console.log("")
         console.log(`❌ Erro em ${ticker}`)
         console.log(e.message)
 
