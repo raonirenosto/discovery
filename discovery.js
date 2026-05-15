@@ -4,6 +4,8 @@ const puppeteer = require("puppeteer")
 const { exec } = require("child_process")
 
 const PASTA_CACHE = path.resolve(__dirname, "dados")
+const HISTORICO_FILE = path.resolve(__dirname, "historico.csv")
+const SEGMENTOS_FILE = path.resolve(__dirname, "dados", "segmentos.csv")
 
 // ===============================
 // 📥 LER FIIs
@@ -73,6 +75,122 @@ function mesAtualNoCache(ticker) {
     // Atualizado se foi modificado no mesmo mês
     return modificado.getMonth() === hoje.getMonth()
         && modificado.getFullYear() === hoje.getFullYear()
+}
+
+// ===============================
+// 📸 HISTÓRICO (fotografia mensal)
+// ===============================
+
+function mesAnoAtual() {
+
+    const hoje = new Date()
+    const mes = String(hoje.getMonth() + 1).padStart(2, "0")
+    const ano = hoje.getFullYear()
+
+    return `${mes}/${ano}`
+}
+
+function carregarHistorico() {
+
+    if (!fs.existsSync(HISTORICO_FILE)) return {}
+
+    const linhas = fs.readFileSync(HISTORICO_FILE, "utf-8")
+        .split(/\r?\n/)
+        .filter(l => l.trim())
+
+    // formato: mesAno;ticker;meses
+    const historico = {}
+
+    for (let i = 1; i < linhas.length; i++) {
+
+        const [mesAno, ticker, meses] = linhas[i].split(";")
+
+        if (!historico[mesAno]) historico[mesAno] = {}
+
+        historico[mesAno][ticker] = parseInt(meses)
+    }
+
+    return historico
+}
+
+function salvarHistorico(historico) {
+
+    let csv = "mes_ano;ticker;meses\n"
+
+    const meses = Object.keys(historico).sort()
+
+    for (const mesAno of meses) {
+
+        const tickers = Object.keys(historico[mesAno]).sort()
+
+        for (const ticker of tickers) {
+
+            csv += `${mesAno};${ticker};${historico[mesAno][ticker]}\n`
+        }
+    }
+
+    fs.writeFileSync(HISTORICO_FILE, csv)
+}
+
+function mesAnterior() {
+
+    const hoje = new Date()
+    hoje.setMonth(hoje.getMonth() - 1)
+
+    const mes = String(hoje.getMonth() + 1).padStart(2, "0")
+    const ano = hoje.getFullYear()
+
+    return `${mes}/${ano}`
+}
+
+// ===============================
+// 🏢 SEGMENTOS
+// ===============================
+
+function carregarSegmentos() {
+
+    if (!fs.existsSync(SEGMENTOS_FILE)) return {}
+
+    const segmentos = {}
+
+    fs.readFileSync(SEGMENTOS_FILE, "utf-8")
+        .split(/\r?\n/)
+        .filter(l => l.trim())
+        .forEach(linha => {
+
+            const idx = linha.indexOf(";")
+            if (idx > 0) {
+                const ticker = linha.substring(0, idx)
+                const segmento = linha.substring(idx + 1)
+                segmentos[ticker] = segmento
+            }
+        })
+
+    return segmentos
+}
+
+function salvarSegmentos(segmentos) {
+
+    if (!fs.existsSync(PASTA_CACHE)) {
+        fs.mkdirSync(PASTA_CACHE)
+    }
+
+    const conteudo = Object.keys(segmentos).sort()
+        .map(t => `${t};${segmentos[t]}`)
+        .join("\n")
+
+    fs.writeFileSync(SEGMENTOS_FILE, conteudo)
+}
+
+async function extrairSegmento(page) {
+
+    return await page.evaluate(() => {
+
+        const allText = document.body.innerText
+        const match = allText.match(/SEGMENTO\n([^\n]+)/)
+
+        return match ? match[1].trim() : null
+    })
 }
 
 // ===============================
@@ -437,20 +555,67 @@ async function extrairRendimentos(
 // 🧾 GERAR HTML
 // ===============================
 
-function gerarHtml(resultados) {
+function gerarHtml(resultados, historicoAnterior, historico, segmentos) {
+
+    // Calcular últimos 3 meses
+    const ultimos3Meses = []
+    const hoje = new Date()
+
+    for (let i = 1; i <= 3; i++) {
+
+        const d = new Date(hoje)
+        d.setMonth(d.getMonth() - i)
+
+        const mes = String(d.getMonth() + 1).padStart(2, "0")
+        const ano = d.getFullYear()
+
+        ultimos3Meses.push(`${mes}/${ano}`)
+    }
 
     let linhas = ""
 
+    let contador = 0
+
     resultados.forEach(r => {
+
+        contador++
 
         const destaque = r.meses >= 48 ? ' class="destaque"' : ''
 
+        const mesesAnterior = historicoAnterior[r.ticker]
+        let seta = ""
+
+        if (mesesAnterior !== undefined && r.meses > mesesAnterior) {
+            seta = ' <span class="seta-up">↑</span>'
+        }
+
+        // Bolinha azul se entrou nos 48+ nos últimos 3 meses
+        if (r.meses >= 48) {
+
+            let entrouRecente = false
+
+            for (const mes of ultimos3Meses) {
+
+                const hist = historico[mes]
+                if (hist && hist[r.ticker] !== undefined && hist[r.ticker] < 48) {
+                    entrouRecente = true
+                    break
+                }
+            }
+
+            if (entrouRecente) {
+                seta = ' <span class="novo-48">●</span>'
+            }
+        }
+
         linhas += `
 <tr${destaque}>
-    <td>${r.ticker}</td>
+    <td>${contador}</td>
+    <td>${r.ticker}${seta}</td>
     <td>${r.meses}</td>
     <td>${r.quebra || "Sem quebra"}</td>
     <td>${r.totalRendimentos}</td>
+    <td>${segmentos[r.ticker] || "-"}</td>
 </tr>
 `
     })
@@ -506,14 +671,27 @@ tr.destaque td{
     font-weight:bold;
 }
 
+.seta-up{
+    color:#28a745;
+    font-weight:bold;
+    font-size:16px;
+}
+
+.novo-48{
+    color:#007bff;
+    font-weight:bold;
+    font-size:16px;
+}
+
 .legenda{
     width:1000px;
     margin:20px auto;
     padding:14px 20px;
-    background:#d4edda;
-    border-left:5px solid #28a745;
+    background:#f8f9fa;
+    border-left:5px solid #4a90e2;
     border-radius:4px;
     font-size:14px;
+    line-height:1.8;
 }
 
 </style>
@@ -529,10 +707,12 @@ tr.destaque td{
 <thead>
 
 <tr>
+    <th>#</th>
     <th>FII</th>
     <th>Meses sem quebra</th>
     <th>Data da quebra</th>
     <th>Rendimentos encontrados</th>
+    <th>Segmento</th>
 </tr>
 
 </thead>
@@ -546,7 +726,9 @@ ${linhas}
 </table>
 
 <div class="legenda">
-    🟢 <strong>Linhas em verde</strong>: FIIs com 48 meses ou mais sem queda nos rendimentos (4+ anos de estabilidade/crescimento).
+    🟢 <strong>Linhas em verde</strong>: FIIs com 48 meses ou mais sem queda nos rendimentos (4+ anos de estabilidade/crescimento).<br>
+    <span class="seta-up">↑</span> <strong>Seta verde</strong>: FII aumentou o número de meses sem quebra em relação ao mês anterior.<br>
+    <span class="novo-48">●</span> <strong>Bolinha azul</strong>: FII entrou na lista de 48+ meses sem quebra nos últimos 3 meses.
 </div>
 
 </body>
@@ -624,6 +806,16 @@ async function processarFii(
                 indice,
                 total
             )
+
+        // Extrair segmento se ainda não tem no cache
+        if (!segmentos[ticker]) {
+
+            const segmento = await extrairSegmento(page)
+
+            if (segmento) {
+                segmentos[ticker] = segmento
+            }
+        }
 
         const resultado =
             calcularMesesSemQuebra(historicoDividendos)
@@ -727,6 +919,8 @@ async function main() {
         ]
     })
 
+    const segmentos = carregarSegmentos()
+
     const resultados = []
 
     for (let i = 0; i < fiis.length; i++) {
@@ -783,7 +977,79 @@ async function main() {
 
     removerStatus()
 
-    gerarHtml(resultados)
+    // Carregar histórico e comparar com mês anterior
+    const historico = carregarHistorico()
+    const mesAnt = mesAnterior()
+    const historicoAnterior = historico[mesAnt] || {}
+
+    // Salvar fotografia do mês atual
+    const mesAtual = mesAnoAtual()
+    historico[mesAtual] = {}
+
+    for (const r of resultados) {
+        historico[mesAtual][r.ticker] = r.meses
+    }
+
+    salvarHistorico(historico)
+
+    gerarHtml(resultados, historicoAnterior, historico, segmentos)
+
+    // Buscar segmentos faltantes
+    const semSegmento = resultados
+        .filter(r => !segmentos[r.ticker])
+        .map(r => r.ticker)
+
+    if (semSegmento.length > 0) {
+
+        console.log(`🏢 Buscando segmentos de ${semSegmento.length} FIIs...`)
+
+        for (const ticker of semSegmento) {
+
+            try {
+
+                process.stdout.write(`🏢 ${ticker}...`)
+
+                const page = await browser.newPage()
+
+                await page.setUserAgent(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                    "Chrome/137.0.0.0 Safari/537.36"
+                )
+
+                await page.goto(
+                    `https://statusinvest.com.br/fundos-imobiliarios/${ticker.toLowerCase()}`,
+                    { waitUntil: "networkidle2", timeout: 30000 }
+                )
+
+                await new Promise(r => setTimeout(r, 3000))
+
+                const segmento = await extrairSegmento(page)
+
+                if (segmento) {
+                    segmentos[ticker] = segmento
+                    process.stdout.write(` ${segmento}\n`)
+                } else {
+                    segmentos[ticker] = "N/A"
+                    process.stdout.write(` não encontrado\n`)
+                }
+
+                await page.close()
+
+            } catch (_) {
+
+                segmentos[ticker] = "N/A"
+                process.stdout.write(` erro\n`)
+            }
+
+            await new Promise(r => setTimeout(r, 2000))
+        }
+
+        // Regera o HTML com segmentos atualizados
+        gerarHtml(resultados, historicoAnterior, historico, segmentos)
+    }
+
+    salvarSegmentos(segmentos)
 
     console.log("📄 HTML gerado: resultado.html")
     console.log("")

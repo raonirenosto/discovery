@@ -10,6 +10,10 @@ yarn-error.log*
 resultado.html
 resultado - *.html
 dados/
+historico.csv
+
+# Testes
+teste.js
 
 # Ambiente
 .env
