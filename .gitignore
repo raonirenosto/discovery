@@ -1,4 +1,4 @@
-# Dependências
+# Dependï¿½ncias
 node_modules/
 
 # Logs
@@ -8,6 +8,8 @@ yarn-error.log*
 
 # Arquivos gerados
 resultado.html
+resultado - *.html
+dados/
 
 # Ambiente
 .env
@@ -21,7 +23,7 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Arquivos temporários
+# Arquivos temporï¿½rios
 *.tmp
 *.temp
 

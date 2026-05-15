@@ -1,18 +1,16 @@
 {
-  "name": "pvp",
+  "name": "fiis-discovery",
   "version": "1.0.0",
   "description": "",
-  "main": "pvp-fiis.js",
+  "main": "discovery.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node discovery.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "axios": "^1.13.6",
-    "cheerio": "^1.2.0",
     "puppeteer": "^24.15.0"
   }
 }

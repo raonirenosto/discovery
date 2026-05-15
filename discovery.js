@@ -1,5 +1,8 @@
 const fs = require("fs")
+const path = require("path")
 const puppeteer = require("puppeteer")
+
+const PASTA_CACHE = path.resolve(__dirname, "dados")
 
 // ===============================
 // 📥 LER FIIs
@@ -21,6 +24,57 @@ function lerFiis() {
 }
 
 // ===============================
+// 💾 CACHE
+// ===============================
+
+function lerCache(ticker) {
+
+    const arquivo = path.join(PASTA_CACHE, ticker.toUpperCase() + ".csv")
+
+    if (!fs.existsSync(arquivo)) return []
+
+    return fs.readFileSync(arquivo, "utf-8")
+        .split(/\r?\n/)
+        .filter(l => l.trim())
+        .map(linha => {
+
+            const [dataCom, pagamento, valor] = linha.split(";")
+            return { dataCom, pagamento, valor }
+        })
+}
+
+function salvarCache(ticker, rendimentos) {
+
+    if (!fs.existsSync(PASTA_CACHE)) {
+        fs.mkdirSync(PASTA_CACHE)
+    }
+
+    const arquivo = path.join(PASTA_CACHE, ticker.toUpperCase() + ".csv")
+
+    const conteudo = rendimentos
+        .map(r => r.dataCom + ";" + r.pagamento + ";" + r.valor)
+        .join("\n")
+
+    fs.writeFileSync(arquivo, conteudo)
+}
+
+function mesAtualNoCache(ticker) {
+
+    const arquivo = path.join(PASTA_CACHE, ticker.toUpperCase() + ".csv")
+
+    if (!fs.existsSync(arquivo)) return false
+
+    // Se o arquivo existe, checa a data de modificação
+    const stat = fs.statSync(arquivo)
+    const modificado = stat.mtime
+    const hoje = new Date()
+
+    // Atualizado se foi modificado no mesmo mês
+    return modificado.getMonth() === hoje.getMonth()
+        && modificado.getFullYear() === hoje.getFullYear()
+}
+
+// ===============================
 // 🎨 ANSI COLORS
 // ===============================
 
@@ -37,7 +91,8 @@ let statusJaExiste = false
 function atualizarStatus({
     ticker = "",
     pagina = "",
-    percentual = 0
+    percentual = 0,
+    fonte = "net"
 }) {
 
     // remove status anterior
@@ -48,6 +103,11 @@ function atualizarStatus({
     }
 
     statusJaExiste = true
+
+    const icone = fonte === "cache" ? "💾" : "🌐"
+    const texto = fonte === "cache"
+        ? `${icone} Cache: ${ticker}`
+        : `${icone} Net: página ${pagina} do ${ticker}`
 
     console.log("")
 
@@ -62,7 +122,7 @@ function atualizarStatus({
     console.log(
         BG_YELLOW +
         FG_BLACK +
-        `🔄 Carregando: página ${pagina} do ${ticker}`
+        texto
         +
         RESET
     )
@@ -190,7 +250,12 @@ async function extrairRendimentos(
     total
 ) {
 
-    const historicoDividendos = []
+    const cacheExistente = lerCache(ticker)
+    const datasCache = new Set(
+        cacheExistente.map(r => `${r.dataCom}-${r.pagamento}-${r.valor}`)
+    )
+
+    const novos = []
     const registros = new Set()
 
     let pagina = 1
@@ -235,11 +300,18 @@ async function extrairRendimentos(
                     const chave =
                         `${dataCom}-${pagamento}-${valor}`
 
+                    // Encontrou algo que já está no cache — para
+                    if (datasCache.has(chave)) {
+
+                        continuar = false
+                        break
+                    }
+
                     if (!registros.has(chave)) {
 
                         registros.add(chave)
 
-                        historicoDividendos.push({
+                        novos.push({
                             dataCom,
                             pagamento,
                             valor
@@ -251,9 +323,11 @@ async function extrairRendimentos(
             }
         }
 
+        if (!continuar) break
+
         const primeiroAntes =
-            historicoDividendos[
-                historicoDividendos.length - encontrouNaPagina
+            novos[
+                novos.length - encontrouNaPagina
             ]?.dataCom
 
         const paginaAlvo = pagina + 1
@@ -349,7 +423,13 @@ async function extrairRendimentos(
         await new Promise(r => setTimeout(r, 2000))
     }
 
-    return historicoDividendos
+    // Mescla novos (recentes) + cache (antigos)
+    const completo = novos.concat(cacheExistente)
+
+    // Salva sempre — mesmo vazio, marca que já foi verificado
+    salvarCache(ticker, completo)
+
+    return completo
 }
 
 // ===============================
@@ -630,6 +710,39 @@ async function main() {
     for (let i = 0; i < fiis.length; i++) {
 
         const fii = fiis[i]
+
+        // Se o mês atual já está no cache, usa direto
+        if (mesAtualNoCache(fii)) {
+
+            atualizarStatus({
+                ticker: fii,
+                percentual: ((i) / fiis.length) * 100,
+                fonte: "cache"
+            })
+
+            const cache = lerCache(fii)
+            const resultado = calcularMesesSemQuebra(cache)
+
+            removerStatus()
+
+            console.log(`💾 ${fii} — ${resultado.meses} meses (cache)`)
+            console.log("")
+
+            atualizarStatus({
+                ticker: "",
+                percentual: ((i + 1) / fiis.length) * 100,
+                fonte: "cache"
+            })
+
+            resultados.push({
+                ticker: fii,
+                meses: resultado.meses,
+                quebra: resultado.quebra,
+                totalRendimentos: cache.length
+            })
+
+            continue
+        }
 
         const resultado =
             await processarFii(
