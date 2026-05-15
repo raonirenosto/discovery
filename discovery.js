@@ -1,6 +1,7 @@
 const fs = require("fs")
 const path = require("path")
 const puppeteer = require("puppeteer")
+const { exec } = require("child_process")
 
 const PASTA_CACHE = path.resolve(__dirname, "dados")
 
@@ -442,8 +443,10 @@ function gerarHtml(resultados) {
 
     resultados.forEach(r => {
 
+        const destaque = r.meses >= 48 ? ' class="destaque"' : ''
+
         linhas += `
-<tr>
+<tr${destaque}>
     <td>${r.ticker}</td>
     <td>${r.meses}</td>
     <td>${r.quebra || "Sem quebra"}</td>
@@ -498,6 +501,21 @@ tr:nth-child(odd){
     background:#ffffff;
 }
 
+tr.destaque td{
+    background:#d4edda;
+    font-weight:bold;
+}
+
+.legenda{
+    width:1000px;
+    margin:20px auto;
+    padding:14px 20px;
+    background:#d4edda;
+    border-left:5px solid #28a745;
+    border-radius:4px;
+    font-size:14px;
+}
+
 </style>
 
 </head>
@@ -526,6 +544,10 @@ ${linhas}
 </tbody>
 
 </table>
+
+<div class="legenda">
+    🟢 <strong>Linhas em verde</strong>: FIIs com 48 meses ou mais sem queda nos rendimentos (4+ anos de estabilidade/crescimento).
+</div>
 
 </body>
 
@@ -766,6 +788,8 @@ async function main() {
     console.log("📄 HTML gerado: resultado.html")
     console.log("")
     console.log("✅ Finalizado")
+
+    exec(`start "" "${path.resolve(__dirname, "resultado.html")}"`)
 
     await browser.close()
 }
