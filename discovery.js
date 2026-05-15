@@ -21,14 +21,75 @@ function lerFiis() {
 }
 
 // ===============================
+// 🎨 ANSI COLORS
+// ===============================
+
+const BG_YELLOW = "\x1b[43m"
+const FG_BLACK = "\x1b[30m"
+const RESET = "\x1b[0m"
+
+// ===============================
 // 🖥️ STATUS DINÂMICO
 // ===============================
 
-function atualizarStatus(texto) {
+let statusJaExiste = false
 
-    process.stdout.clearLine(0)
-    process.stdout.cursorTo(0)
-    process.stdout.write(texto)
+function atualizarStatus({
+    ticker = "",
+    pagina = "",
+    percentual = 0
+}) {
+
+    // remove status anterior
+    if (statusJaExiste) {
+
+        process.stdout.write("\x1b[4F")
+        process.stdout.write("\x1b[J")
+    }
+
+    statusJaExiste = true
+
+    console.log("")
+
+    console.log(
+        BG_YELLOW +
+        FG_BLACK +
+        `⏳ Total carregado: ${percentual.toFixed(1)}%`
+        +
+        RESET
+    )
+
+    console.log(
+        BG_YELLOW +
+        FG_BLACK +
+        `🔄 Carregando: página ${pagina} do ${ticker}`
+        +
+        RESET
+    )
+
+    console.log(
+        BG_YELLOW +
+        FG_BLACK +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+        +
+        RESET
+    )
+}
+
+// ===============================
+// 🧹 REMOVER STATUS
+// ===============================
+
+function removerStatus() {
+
+    if (!statusJaExiste) {
+        return
+    }
+
+    process.stdout.write("\x1b[4F")
+    process.stdout.write("\x1b[J")
+
+    statusJaExiste = false
 }
 
 // ===============================
@@ -45,10 +106,6 @@ function calcularMesesSemQuebra(historicoDividendos) {
         }
     }
 
-    // ===============================
-    // NORMALIZAR
-    // ===============================
-
     const lista = historicoDividendos.map(h => {
 
         const valor = parseFloat(
@@ -63,10 +120,6 @@ function calcularMesesSemQuebra(historicoDividendos) {
         }
     })
 
-    // ===============================
-    // CONTAGEM
-    // ===============================
-
     let meses = 1
     let quebra = null
 
@@ -76,19 +129,11 @@ function calcularMesesSemQuebra(historicoDividendos) {
         const proximo = lista[i + 1]
         const depois = lista[i + 2]
 
-        // ===============================
-        // ESTÁVEL OU CRESCENTE
-        // ===============================
-
         if (atual.valor >= proximo.valor) {
 
             meses++
             continue
         }
-
-        // ===============================
-        // PICO TEMPORÁRIO
-        // ===============================
 
         const ehPicoTemporario =
 
@@ -101,10 +146,6 @@ function calcularMesesSemQuebra(historicoDividendos) {
             meses++
             continue
         }
-
-        // ===============================
-        // QUEBRA REAL
-        // ===============================
 
         quebra = proximo.dataCom
         break
@@ -142,7 +183,12 @@ async function lerTabelaDividendos(page) {
 // 🌐 EXTRAIR RENDIMENTOS
 // ===============================
 
-async function extrairRendimentos(page, ticker) {
+async function extrairRendimentos(
+    page,
+    ticker,
+    indice,
+    total
+) {
 
     const historicoDividendos = []
     const registros = new Set()
@@ -152,9 +198,11 @@ async function extrairRendimentos(page, ticker) {
 
     while (continuar) {
 
-        atualizarStatus(
-            `🔄 ${ticker} | carregando página ${pagina}...`
-        )
+        atualizarStatus({
+            ticker,
+            pagina,
+            percentual: ((indice - 1) / total) * 100
+        })
 
         await new Promise(r => setTimeout(r, 3000))
 
@@ -198,10 +246,6 @@ async function extrairRendimentos(page, ticker) {
                         })
 
                         encontrouNaPagina++
-
-                        atualizarStatus(
-                            `🔄 ${ticker} | ${dataCom} | R$ ${valor}`
-                        )
                     }
                 }
             }
@@ -211,10 +255,6 @@ async function extrairRendimentos(page, ticker) {
             historicoDividendos[
                 historicoDividendos.length - encontrouNaPagina
             ]?.dataCom
-
-        // ===============================
-        // PRÓXIMA PÁGINA
-        // ===============================
 
         const paginaAlvo = pagina + 1
 
@@ -267,10 +307,6 @@ async function extrairRendimentos(page, ticker) {
             break
         }
 
-        // ===============================
-        // ESPERAR TROCA DA TABELA
-        // ===============================
-
         try {
 
             await page.waitForFunction(
@@ -317,10 +353,118 @@ async function extrairRendimentos(page, ticker) {
 }
 
 // ===============================
+// 🧾 GERAR HTML
+// ===============================
+
+function gerarHtml(resultados) {
+
+    let linhas = ""
+
+    resultados.forEach(r => {
+
+        linhas += `
+<tr>
+    <td>${r.ticker}</td>
+    <td>${r.meses}</td>
+    <td>${r.quebra || "Sem quebra"}</td>
+    <td>${r.totalRendimentos}</td>
+</tr>
+`
+    })
+
+    const html = `
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<style>
+
+body{
+    font-family:Arial;
+    background:#f4f8ff;
+    padding:40px;
+}
+
+h1{
+    text-align:center;
+    margin-bottom:30px;
+}
+
+table{
+    border-collapse:collapse;
+    width:1000px;
+    margin:auto;
+    background:white;
+}
+
+th{
+    background:#4a90e2;
+    color:white;
+    padding:14px;
+}
+
+td{
+    padding:12px;
+    text-align:center;
+}
+
+tr:nth-child(even){
+    background:#e6f0ff;
+}
+
+tr:nth-child(odd){
+    background:#ffffff;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>Scanner de FIIs</h1>
+
+<table>
+
+<thead>
+
+<tr>
+    <th>FII</th>
+    <th>Meses sem quebra</th>
+    <th>Data da quebra</th>
+    <th>Rendimentos encontrados</th>
+</tr>
+
+</thead>
+
+<tbody>
+
+${linhas}
+
+</tbody>
+
+</table>
+
+</body>
+
+</html>
+`
+
+    fs.writeFileSync("resultado.html", html)
+}
+
+// ===============================
 // 🌐 PROCESSAR FII
 // ===============================
 
-async function processarFii(browser, ticker) {
+async function processarFii(
+    browser,
+    ticker,
+    indice,
+    total
+) {
 
     const url =
         `https://statusinvest.com.br/fundos-imobiliarios/${ticker.toLowerCase()}`
@@ -329,7 +473,11 @@ async function processarFii(browser, ticker) {
 
     try {
 
-        atualizarStatus(`🌐 Abrindo ${ticker}...`)
+        atualizarStatus({
+            ticker,
+            pagina: 1,
+            percentual: ((indice - 1) / total) * 100
+        })
 
         page = await browser.newPage()
 
@@ -368,14 +516,20 @@ async function processarFii(browser, ticker) {
         await new Promise(r => setTimeout(r, 3000))
 
         const historicoDividendos =
-            await extrairRendimentos(page, ticker)
+            await extrairRendimentos(
+                page,
+                ticker,
+                indice,
+                total
+            )
 
         const resultado =
             calcularMesesSemQuebra(historicoDividendos)
 
-        process.stdout.write("\n")
+        // remove somente a barra temporária
+        removerStatus()
 
-        console.log("")
+        // escreve resultado definitivo
         console.log(`📊 ${ticker}`)
         console.log(
             `📈 Meses sem quebra: ${resultado.meses}`
@@ -398,13 +552,37 @@ async function processarFii(browser, ticker) {
             `✅ ${historicoDividendos.length} rendimentos encontrados`
         )
 
+        console.log("")
+
+        // recria status abaixo do histórico
+        atualizarStatus({
+            ticker: "",
+            pagina: "",
+            percentual: (indice / total) * 100
+        })
+
+        return {
+            ticker,
+            meses: resultado.meses,
+            quebra: resultado.quebra,
+            totalRendimentos: historicoDividendos.length
+        }
+
     } catch (e) {
 
-        process.stdout.write("\n")
+        removerStatus()
 
-        console.log("")
         console.log(`❌ Erro em ${ticker}`)
         console.log(e.message)
+        console.log("")
+
+        atualizarStatus({
+            ticker: "",
+            pagina: "",
+            percentual: (indice / total) * 100
+        })
+
+        return null
 
     } finally {
 
@@ -430,6 +608,12 @@ async function main() {
     console.log(`📊 ${fiis.length} FIIs carregados`)
     console.log("")
 
+    atualizarStatus({
+        ticker: "aguardando...",
+        pagina: "-",
+        percentual: 0
+    })
+
     const browser = await puppeteer.launch({
 
         headless: true,
@@ -441,11 +625,32 @@ async function main() {
         ]
     })
 
-    for (const fii of fiis) {
+    const resultados = []
 
-        await processarFii(browser, fii)
+    for (let i = 0; i < fiis.length; i++) {
+
+        const fii = fiis[i]
+
+        const resultado =
+            await processarFii(
+                browser,
+                fii,
+                i + 1,
+                fiis.length
+            )
+
+        if (resultado) {
+            resultados.push(resultado)
+        }
     }
 
+    resultados.sort((a, b) => b.meses - a.meses)
+
+    removerStatus()
+
+    gerarHtml(resultados)
+
+    console.log("📄 HTML gerado: resultado.html")
     console.log("")
     console.log("✅ Finalizado")
 
